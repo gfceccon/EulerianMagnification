@@ -1,9 +1,6 @@
 import numpy as np
 import cv2
-import wx
-import collections
-import threading
-import timeit
+import sys
 
 import pyfftw.interfaces.cache
 from pyfftw.interfaces.scipy_fftpack import fft
@@ -27,25 +24,31 @@ def cvResizeCapture(capture, preferredSize):
 
 #maxHistoryLength has to be larger or equal to 100
 #output has to be a .avi file
-class LazyEyes(object):
+class Eulerian(object):
 	def __init__(self, 
 		source,
 		output,
 		maxHistoryLength=100,
-		minHz=5.0/6.0, maxHz=1.0,
-		amplification=32.0, numPyramidLevels=1,
+		minHz=5.0/6.0, 
+		maxHz=1.0,
+		amplification=32.0, 
+		numPyramidLevels=1,
 		useLaplacianPyramid=False,
-		useGrayOverlay=True,
-		numFFTThreads = 8, numIFFTThreads=8,
-		cameraDeviceID=0, imageSize=(640, 480)):
-	
-		self.mirrored = True
-		self._running = True
+		useGrayOverlay=False,
+		numFFTThreads = 8, 
+		numIFFTThreads=8,
+		cameraDeviceID=0, 
+		imageSize=(960, 540)):
+		
 		#self._capture = cv2.VideoCapture(0)
 		self._capture = cv2.VideoCapture(source)
 		self._fps = self._capture.get(cv2.CAP_PROP_FPS)
 		self._numFrames = int(self._capture.get(cv2.CAP_PROP_FRAME_COUNT))
 		self._currentFrame = 1
+		
+		w = self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+		h = self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+		print("Resizing from (" + str(w) + ", " + str(h) + ") to " + str(imageSize))
 		
 		#This only works if the source is a webcam
 		size = cvResizeCapture(self._capture, imageSize)
@@ -99,7 +102,6 @@ class LazyEyes(object):
 		print("Frame", self._currentFrame, "of", self._numFrames)
 		self._currentFrame += 1
 		
-		timestamp = timeit.default_timer()
 		if self._useGrayOverlay:
 			smallImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
 		else:
@@ -118,19 +120,18 @@ class LazyEyes(object):
 		self._currentHistoryLength += 1
 		
 		if historyLength == self._maxHistoryLength - 1:
-			# Append the new image and timestamp to the
-			# history.
+			# Append the new image to the history.
 			self._history[historyLength] = smallImage
 		else:
-			# Drop the oldest image and timestamp from the
-			# history and append the new ones.
+			# Drop the oldest image from the history and append the new one.
 			self._history[:-1] = self._history[1:]
 			self._history[-1] = smallImage
 		
-		# The history is full, so process it.
+		# Process history.
 		timePerFrame = 1 / self._fps
 		
 		fftResult = fft(self._history, axis=0, threads=self._numFFTThreads)
+		#fftResult = np.fft.fftn(self._history, axes=[0])
 		
 		frequencies = fftfreq(self._maxHistoryLength, d=timePerFrame)
 		lowBound = (np.abs(frequencies - self._minHz)).argmin()
@@ -153,10 +154,13 @@ class LazyEyes(object):
 		
 		return self._currentHistoryLength > self._maxHistoryLength	
 
-def main():
-	lazyEyes = LazyEyes("cam.avi", "output.avi")
-	lazyEyes._runMagnification()
+def main(source, destination):
+	eulerian = Eulerian(source, destination)
+	eulerian._runMagnification()
 	
 
 if __name__ == '__main__':
-	main()
+	if(len(sys.argv) == 3):
+		main(sys.argv[1], sys.argv[2])
+	else:
+		print("usage: python Eulerian.py source destination")
