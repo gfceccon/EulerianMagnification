@@ -28,23 +28,26 @@ class Eulerian(object):
 	def __init__(self, 
 		source,
 		output,
-		maxHistoryLength=100,
-		minHz=5.0/6.0, 
-		maxHz=1.0,
+		framesToSkip=0,
+		maxHistoryLength=50,
+		minHz=3.6, 
+		maxHz=6.2,
 		amplification=32.0, 
-		numPyramidLevels=1,
+		numPyramidLevels=2,
 		useLaplacianPyramid=False,
 		useGrayOverlay=False,
 		numFFTThreads = 8, 
 		numIFFTThreads=8,
-		cameraDeviceID=0, 
-		imageSize=(960, 540)):
+		imageSize=(640, 352)):
 		
 		#self._capture = cv2.VideoCapture(0)
 		self._capture = cv2.VideoCapture(source)
 		self._fps = self._capture.get(cv2.CAP_PROP_FPS)
 		self._numFrames = int(self._capture.get(cv2.CAP_PROP_FRAME_COUNT))
 		self._currentFrame = 1
+		self._framesToSkip = framesToSkip
+		
+		imageSize = (int(imageSize[0]), int(imageSize[1]))
 		
 		w = self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)
 		h = self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -58,7 +61,7 @@ class Eulerian(object):
 		self._imageHeight = imageSize[1]
 		
 		fourcc = cv2.VideoWriter_fourcc(*'XVID')
-		self._out = cv2.VideoWriter(output, fourcc, 20.0, (w,h))
+		self._out = cv2.VideoWriter(output, fourcc, self._fps, (w,h))
 		
 		self._useGrayOverlay = useGrayOverlay
 		if useGrayOverlay:
@@ -101,6 +104,10 @@ class Eulerian(object):
 	def _applyEulerianVideoMagnification(self, image):
 		print("Frame", self._currentFrame, "of", self._numFrames)
 		self._currentFrame += 1
+		
+		if self._framesToSkip:
+			self._framesToSkip -= 1
+			return False
 		
 		if self._useGrayOverlay:
 			smallImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -154,13 +161,15 @@ class Eulerian(object):
 		
 		return self._currentHistoryLength > self._maxHistoryLength	
 
-def main(source, destination):
-	eulerian = Eulerian(source, destination)
+def main(source, destination, framesToSkip=0):
+	eulerian = Eulerian(source, destination, framesToSkip=framesToSkip)
 	eulerian._runMagnification()
 	
 
 if __name__ == '__main__':
 	if(len(sys.argv) == 3):
 		main(sys.argv[1], sys.argv[2])
+	elif(len(sys.argv) == 4):
+		main(sys.argv[1], sys.argv[2], int(sys.argv[3]))
 	else:
-		print("usage: python Eulerian.py source destination")
+		print("usage: python Eulerian.py source destination [framesToSkip]")

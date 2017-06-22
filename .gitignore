@@ -6,6 +6,7 @@ __pycache__/
 # Video extensions
 *.mp4
 *.avi
+*.MOV
 
 #Windows Thumbs.db
 Thumbs.db
