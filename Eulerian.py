@@ -49,11 +49,9 @@ class Eulerian(object):
 
         w = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        imageSize = (int(w), int(h))
-
-        self._imageWidth = imageSize[0]
-        self._imageHeight = imageSize[1]
+        
+        self._imageWidth = w
+        self._imageHeight = h
 
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         self._out = cv2.VideoWriter(output, fourcc, self._fps, (w, h))
@@ -86,9 +84,6 @@ class Eulerian(object):
     def _runMagnification(self):
         success, image = self._capture.read()
         while success:
-            image = cv2.resize(
-                image, (self._imageWidth, self._imageHeight), image, interpolation=cv2.INTER_CUBIC)
-            # print(image.shape)
             if self._applyEulerianVideoMagnification(image) == True:
                 self._out.write(image)
             del image
