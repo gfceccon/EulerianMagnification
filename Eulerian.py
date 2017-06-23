@@ -35,7 +35,7 @@ class Eulerian(object):
                  minHz,
                  maxHz,
                  amplification,
-                 numPyramidLevels=2,
+                 numPyramidLevels,
                  maxHistoryLength=100,
                  useLaplacianPyramid=True,
                  useGrayOverlay=False,
@@ -57,18 +57,18 @@ class Eulerian(object):
         self._out = cv2.VideoWriter(output, fourcc, self._fps, (w, h))
 
         self._useGrayOverlay = useGrayOverlay
-        if useGrayOverlay:
-            historyShape = (maxHistoryLength,
-                            h >> numPyramidLevels,
-                            w >> numPyramidLevels)
-        else:
-            historyShape = (maxHistoryLength,
-                            h >> numPyramidLevels,
-                            w >> numPyramidLevels, 3)
+        #if useGrayOverlay:
+        #    historyShape = (maxHistoryLength,
+        #                    h >> numPyramidLevels,
+        #                    w >> numPyramidLevels)
+        #else:
+        #    historyShape = (maxHistoryLength,
+        #                    h >> numPyramidLevels,
+        #                    w >> numPyramidLevels, 3)
+        self._history = None
 
         self._maxHistoryLength = maxHistoryLength
         self._currentHistoryLength = 0
-        self._history = np.empty(historyShape, np.float32)
 
         self._numPyramidLevels = numPyramidLevels
         self._useLaplacianPyramid = useLaplacianPyramid
@@ -83,12 +83,30 @@ class Eulerian(object):
 
     def _runMagnification(self):
         success, image = self._capture.read()
+        #hpow = 1
+        #wpow = 1
+        #newW = 2
+        #newH = 2
+        #while newW < self._imageWidth:
+        #    wpow+=1
+        #    newW = 2 ** wpow
+        #while newH < self._imageHeight:
+        #    hpow+=1
+        #    newH = 2 ** hpow
+        #wpow-=1
+        #hpow-=1
         while success:
+            #image.resize(2 ** wpow, 2 ** hpow)
+            #(h, w) = image.shape
+            #print('height ', h, ' width ', w)
             if self._applyEulerianVideoMagnification(image) == True:
                 self._out.write(image)
             del image
             success, image = self._capture.read()
-
+    def _getsize(self, image):
+        (h, w) = image.shape[:2]
+        return w, h
+    
     def _applyEulerianVideoMagnification(self, image):
         sys.stdout.write("\rFrame %d of %d" %
                          (self._currentFrame, self._numFrames))
@@ -100,6 +118,8 @@ class Eulerian(object):
                 image, cv2.COLOR_BGR2GRAY).astype(np.float32)
         else:
             smallImage = image.astype(np.float32)
+        
+        img = smallImage
 
         # Downsample the image using a pyramid technique.
         i = 0
@@ -108,45 +128,71 @@ class Eulerian(object):
             i += 1
 
         if self._useLaplacianPyramid:
-            smallImage[:] -= cv2.pyrUp(cv2.pyrDown(smallImage))
+            smallImage[:] -= cv2.pyrUp(cv2.pyrDown(smallImage), dstsize=self._getsize(smallImage))
+        
+        
+        levels = []
+        
+        # Downsample the image using a pyramid technique.
+        i = 0
+        while i < self._numPyramidLevels:
+            next_img = cv2.pyrDown(img)
+            img1 = cv2.pyrUp(next_img, dstsize=self._getsize(img))
+            levels.append(img-img1)
+            img = next_img
+            i += 1
+        levels.append(img)
+        
+        
+        # TODO FILTER
+        
+        
 
-        historyLength = len(self._history)
-        self._currentHistoryLength += 1
+        if(self._history is None):
+            (hi, wi, _) = img.shape
+            historyShape = (self._maxHistoryLength,
+                                hi,
+                                wi, 3)
+            self._history = np.zeros(historyShape, np.float32)
+            
+        
+        self._history[:-1] = self._history[1:]
+        self._history[-1] = img
 
-        if historyLength == self._maxHistoryLength - 1:
-            # Append the new image to the history.
-            self._history[historyLength] = smallImage
-        else:
-            # Drop the oldest image from the history and append the new one.
-            self._history[:-1] = self._history[1:]
-            self._history[-1] = smallImage
-
+        if(self._currentHistoryLength < self._maxHistoryLength - 1):
+            self._currentHistoryLength+=1
+        
         # Process history.
         timePerFrame = 1 / self._fps
-
+        
         fftResult = fft(self._history, axis=0, threads=self._numFFTThreads)
         #fftResult = np.fft.fftn(self._history, axes=[0])
-
-        frequencies = fftfreq(self._maxHistoryLength, d=timePerFrame)
+        
+        frequencies = fftfreq(self._currentHistoryLength, d=timePerFrame)
         lowBound = (np.abs(frequencies - self._minHz)).argmin()
         highBound = (np.abs(frequencies - self._maxHz)).argmin()
         fftResult[:lowBound] = 0j
         fftResult[highBound:-highBound] = 0j
         fftResult[-lowBound:] = 0j
-
+        
         ifftResult = ifft(fftResult, axis=0, threads=self._numIFFTThreads)
 
         # Amplify the result and overlay it on the original image.
-        overlay = np.real(ifftResult[-1]) * self._amplification
-        i = 0
-        while i < self._numPyramidLevels:
-            overlay = cv2.pyrUp(overlay)
-            i += 1
-        if self._useGrayOverlay:
-            overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
-        cv2.convertScaleAbs(image + overlay, image)
-
-        return self._currentHistoryLength > self._maxHistoryLength
+        img = np.real(ifftResult[-1]) * self._amplification
+        
+        #img = levels[-1]
+        for lev_img in levels[-2::-1]:
+            img = cv2.pyrUp(img, dstsize=self._getsize(lev_img))
+            img += lev_img
+        #i = 0
+        #while i < self._numPyramidLevels:
+        #    overlay = cv2.pyrUp(overlay)
+        #    i += 1
+        #if self._useGrayOverlay:
+        #    overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
+        #cv2.convertScaleAbs(image + overlay, image)
+        cv2.convertScaleAbs(image + img, image)
+        return self._currentHistoryLength == self._maxHistoryLength - 1
 
 
 if __name__ == '__main__':
@@ -156,8 +202,9 @@ if __name__ == '__main__':
     parser.add_argument("amplification", help="motion amplification factor", type=float)
     parser.add_argument("min", help="minimum frequency in Hz", type=float)
     parser.add_argument("max", help="maximum frequency in Hz", type=float)
+    parser.add_argument("pyrs", help="num pyramid levels", type=int)
     args = parser.parse_args()
     eulerian = Eulerian(source=args.src, output=args.dst,
                         amplification=args.amplification,
-                        minHz=args.min, maxHz=args.max)
+                        minHz=args.min, maxHz=args.max, numPyramidLevels=args.pyrs)
     eulerian._runMagnification()
