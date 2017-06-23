@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import sys
+import argparse
 
 import pyfftw.interfaces.cache
 from pyfftw.interfaces.scipy_fftpack import fft
@@ -31,11 +32,11 @@ class Eulerian(object):
     def __init__(self,
                  source,
                  output,
-                 maxHistoryLength=100,
-                 minHz=.8,
-                 maxHz=1.1,
-                 amplification=120.0,
+                 minHz,
+                 maxHz,
+                 amplification,
                  numPyramidLevels=2,
+                 maxHistoryLength=100,
                  useLaplacianPyramid=True,
                  useGrayOverlay=False,
                  numFFTThreads=8,
@@ -99,7 +100,6 @@ class Eulerian(object):
         sys.stdout.flush()
         self._currentFrame += 1
 
-
         if self._useGrayOverlay:
             smallImage = cv2.cvtColor(
                 image, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -154,13 +154,15 @@ class Eulerian(object):
         return self._currentHistoryLength > self._maxHistoryLength
 
 
-def main(source, destination):
-    eulerian = Eulerian(source, destination)
-    eulerian._runMagnification()
-
-
 if __name__ == '__main__':
-    if(len(sys.argv) == 3):
-        main(sys.argv[1], sys.argv[2])
-    else:
-        print("usage: python Eulerian.py source destination [framesToSkip]")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("src", help="source file", type=str)
+    parser.add_argument("dst", help="output file", type=str)
+    parser.add_argument("amplification", help="motion amplification factor", type=float)
+    parser.add_argument("min", help="minimum frequency in Hz", type=float)
+    parser.add_argument("max", help="maximum frequency in Hz", type=float)
+    args = parser.parse_args()
+    eulerian = Eulerian(source=args.src, output=args.dst,
+                        amplification=args.amplification,
+                        minHz=args.min, maxHz=args.max)
+    eulerian._runMagnification()
